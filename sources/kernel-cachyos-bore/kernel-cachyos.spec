@@ -4,14 +4,14 @@
 %define _default_patch_fuzz 2
 %define _disable_source_fetch 0
 %define debug_package %{nil}
-%define make_build make %{?_lto_args} %{?_smp_mflags}
+%define make_build make %{?_lto_args} %{?_znver_args} %{?_smp_mflags}
 %undefine __brp_mangle_shebangs
 %undefine _auto_set_build_flags
 %undefine _include_frame_pointers
 
 # Linux Kernel Versions
 %define _basekver 7.0
-%define _stablekver 8
+%define _stablekver 9
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
 
@@ -27,6 +27,10 @@
 # Builds the kernel with clang and enables
 # ThinLTO
 %define _build_lto 0
+
+# Builds for znver4 (AMD Zen 4/5) microarchitecture
+# Adds -march=znver4 -mtune=znver4 via KCFLAGS
+%define _build_znver 1
 
 # Builds nvidia-open kernel modules with
 # the kernel
@@ -53,7 +57,7 @@
 # Valid values are 1-4
 # An invalid value will continue and use
 # x86_64_v3
-%define _x86_64_lvl 3
+%define _x86_64_lvl 4
 
 # Define variables for directory paths
 # to be used during packaging
@@ -65,6 +69,10 @@
 %if %{_build_lto}
     # Define build environment variables to build the kernel with clang
     %define _lto_args CC=clang CXX=clang++ LD=ld.lld LLVM=1 LLVM_IAS=1
+%endif
+
+%if %{_build_znver}
+    %define _znver_args KCFLAGS="-march=znver4 -mtune=znver4"
 %endif
 
 %define _module_args KERNEL_UNAME=%{_kver} IGNORE_PREEMPT_RT_PRESENCE=1 SYSSRC=%{_builddir}/linux-%{_tag} SYSOUT=%{_builddir}/linux-%{_tag}
@@ -102,8 +110,6 @@ BuildRequires:  python3-devel
 BuildRequires:  python3-pyyaml
 BuildRequires:  python-srpm-macros
 BuildRequires:  clang
-BuildRequires:  lld
-BuildRequires:  llvm
 
 %if %{_build_nv}
 BuildRequires:  gcc-c++
