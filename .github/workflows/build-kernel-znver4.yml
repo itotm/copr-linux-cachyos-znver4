@@ -1,0 +1,51 @@
+name: Build kernel-cachyos-znver4
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 20 * * *"
+
+env:
+  COPR_USERNAME: itotm
+  COPR_PROJECT: cachyos-kernel-znver4
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl rpm-build bc bison dwarves elfutils-devel flex gcc
+
+      - name: Get latest CachyOS/linux tag
+        id: tag
+        run: |
+          TAG=$(curl -s https://api.github.com/repos/CachyOS/linux/tags | jq -r '.[0].name')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          STABLEKVER=$(echo "$TAG" | sed 's/.*-\([0-9]\+\)-.*/\1/')
+          echo "stablekver=$STABLEKVER" >> $GITHUB_OUTPUT
+          echo "Latest tag: $TAG"
+
+      - name: Build SRPM
+        run: |
+          rpmbuild -bs --define "_stablekver ${{ steps.tag.outputs.stablekver }}" --define "_tag ${{ steps.tag.outputs.tag }}" sources/kernel-cachyos-bore/kernel-cachyos.spec
+
+      - name: Upload SRPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-srpm
+          path: ~/rpmbuild/SRPMS/*.src.rpm
+
+      - name: Build on COPR
+        if: github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4'
+        env:
+          COPR_TOKEN: ${{ secrets.COPR_API_TOKEN }}
+        run: |
+          pip install copr
+          SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
+          echo "Building $SRPM on COPR..."
+          copr build $COPR_USERNAME $COPR_PROJECT $SRPM
