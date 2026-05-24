@@ -19,7 +19,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq curl rpm rpmdev-setuptree bc bison dwarves elfutils libdw-dev flex gcc
+          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
+
+      - name: Setup rpmbuild directories
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 
       - name: Get latest CachyOS/linux release
         id: release
