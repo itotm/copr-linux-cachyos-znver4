@@ -64,6 +64,21 @@ jobs:
           pip install copr-cli
           export PATH="$HOME/.local/bin:$PATH"
           printf '%s' "$COPR_TOKEN" > ~/.config/copr
+
+          VERSION="${{ steps.release.outputs.basekver }}.${{ steps.release.outputs.stablekver }}"
+          echo "Checking if version $VERSION already exists on COPR..."
+
+          EXISTING=$(curl -s \
+            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=kernel-cachyos-znver4&with_latest_succeeded_build=True" \
+            | jq -r '.builds.latest_succeeded.source_package.version // empty')
+
+          echo "Latest succeeded build version: ${EXISTING:-none}"
+
+          if [ "$EXISTING" = "$VERSION" ]; then
+            echo "Version $VERSION already built successfully on COPR, skipping."
+            exit 0
+          fi
+
           SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
           echo "Building $SRPM on COPR..."
-          copr-cli build $COPR_USERNAME/$COPR_PROJECT $SRPM
+          copr-cli build --nowait $COPR_USERNAME/$COPR_PROJECT $SRPM
