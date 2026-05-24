@@ -11,7 +11,7 @@
 
 # Linux Kernel Versions
 %{!?_basekver: %global _basekver 7.0}
-%{!?_stablekver: %global _stablekver 1}
+%{!?_stablekver: %global _stablekver 9}
 %{!?_tag: %global _tag cachyos-%{_basekver}.%{_stablekver}-1}
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
