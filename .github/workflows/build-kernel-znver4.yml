@@ -61,7 +61,8 @@ jobs:
         env:
           COPR_TOKEN: ${{ secrets.COPR_API_TOKEN }}
         run: |
-          pip install copr
+          pip install copr-cli
+          export PATH="$HOME/.local/bin:$PATH"
           SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
           echo "Building $SRPM on COPR..."
-          copr build $COPR_USERNAME $COPR_PROJECT $SRPM
+          copr-cli build $COPR_USERNAME/$COPR_PROJECT $SRPM
