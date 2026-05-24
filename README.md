@@ -41,24 +41,12 @@ Automated build via GitHub Actions + COPR:
 sudo dnf copr enable itotm/cachyos-kernel-znver4
 
 # Install kernel
-sudo dnf install kernel-cachyos-znver4 kernel-cachyos-znver4-devel-matched
-```
-
-### Verify CPU support
-
-```bash
-/lib64/ld-linux-x86-64.so.2 --help | grep "znver4"
+sudo dnf install kernel-cachyos-znver4
 ```
 
 ## Development
 
 Spec file: `sources/kernel-cachyos-bore/kernel-cachyos.spec`
-
-Build locally:
-
-```bash
-./build-kernel-znver4.sh
-```
 
 ## Credits
 
