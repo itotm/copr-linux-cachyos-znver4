@@ -80,7 +80,7 @@
 Name:           kernel-cachyos-znver4%{?_lto_args:-lto}
 Summary:        Linux BORE %{?_lto_args:+ LTO }Cachy Sauce Kernel by CachyOS with other patches and improvements for AMD Zen 4/5
 Version:        %{_basekver}.%{_stablekver}
-Release:        cachyos1-znver4%{?dist}
+Release:        cachyos.znver4%{?dist}
 License:        GPL-2.0-only
 URL:            https://cachyos.org
 
