@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq curl rpm-build bc bison dwarves elfutils libelfutils-dev flex gcc
+          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
 
       - name: Get latest CachyOS/linux tag
         id: tag
