@@ -11,10 +11,10 @@
 
 # Linux Kernel Versions
 %define _basekver 7.0
-%define _stablekver 10
+%define _stablekver 1
+%{!?_tag: %global _tag cachyos-%{_basekver}.%{_stablekver}-1}
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
-
 
 %define _tarkver %{version}
 
