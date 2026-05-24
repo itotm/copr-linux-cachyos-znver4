@@ -10,8 +10,8 @@
 %undefine _include_frame_pointers
 
 # Linux Kernel Versions
-%define _basekver 7.0
-%define _stablekver 1
+%{!?_basekver: %global _basekver 7.0}
+%{!?_stablekver: %global _stablekver 1}
 %{!?_tag: %global _tag cachyos-%{_basekver}.%{_stablekver}-1}
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}

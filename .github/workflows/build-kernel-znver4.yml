@@ -63,22 +63,25 @@ jobs:
         run: |
           pip install copr-cli
           export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p ~/.config
           printf '%s' "$COPR_TOKEN" > ~/.config/copr
 
-          VERSION="${{ steps.release.outputs.basekver }}.${{ steps.release.outputs.stablekver }}"
-          echo "Checking if version $VERSION already exists on COPR..."
+          SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
+          SRPM_VERSION=$(rpm -qp --queryformat '%{VERSION}' "$SRPM")
+          echo "SRPM version: $SRPM_VERSION"
 
+          echo "Checking COPR for existing build of version $SRPM_VERSION..."
           EXISTING=$(curl -s \
             "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=kernel-cachyos-znver4&with_latest_succeeded_build=True" \
             | jq -r '.builds.latest_succeeded.source_package.version // empty')
 
-          echo "Latest succeeded build version: ${EXISTING:-none}"
+          EXISTING_VERSION=$(echo "$EXISTING" | cut -d'-' -f1)
+          echo "Latest succeeded build on COPR: ${EXISTING_VERSION:-none}"
 
-          if [ "$EXISTING" = "$VERSION" ]; then
-            echo "Version $VERSION already built successfully on COPR, skipping."
+          if [ "$EXISTING_VERSION" = "$SRPM_VERSION" ]; then
+            echo "Version $SRPM_VERSION already built successfully on COPR, skipping."
             exit 0
           fi
 
-          SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
-          echo "Building $SRPM on COPR..."
-          copr-cli build --nowait $COPR_USERNAME/$COPR_PROJECT $SRPM
+          echo "Building $SRPM on COPR (async)..."
+          copr-cli build --nowait $COPR_USERNAME/$COPR_PROJECT "$SRPM"
