@@ -71,8 +71,11 @@ jobs:
           echo "SRPM version: $SRPM_VERSION"
 
           echo "Checking COPR for existing build of version $SRPM_VERSION..."
+          # Extract package name from SRPM
+          SRPM_NAME=$(rpm -qp --queryformat '%{NAME}' "$SRPM")
+          echo "Package name: $SRPM_NAME"
           EXISTING=$(curl -s \
-            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=kernel-cachyos-znver4&with_latest_succeeded_build=True" \
+            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$SRPM_NAME&with_latest_succeeded_build=True" \
             | jq -r '.builds.latest_succeeded.source_package.version // empty')
 
           EXISTING_VERSION=$(echo "$EXISTING" | cut -d'-' -f1)

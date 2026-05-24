@@ -75,7 +75,7 @@
 
 %define _module_args KERNEL_UNAME=%{_kver} IGNORE_PREEMPT_RT_PRESENCE=1 SYSSRC=%{_builddir}/linux-%{_tag} SYSOUT=%{_builddir}/linux-%{_tag}
 
-Name:           kernel-cachyos-znver4%{?_lto_args:-lto}
+Name:           kernel-cachyos-znver4%{?_lto_args:-lto}-%{_basekver}.%{_stablekver}
 Summary:        Linux BORE %{?_lto_args:+ LTO }Cachy Sauce Kernel by CachyOS with other patches and improvements for AMD Zen 4/5
 Version:        %{_basekver}.%{_stablekver}
 Release:        cachyos.znver4%{?dist}
@@ -85,9 +85,9 @@ URL:            https://cachyos.org
 Requires:       kernel-core-uname-r = %{_kver}
 Requires:       kernel-modules-uname-r = %{_kver}
 Requires:       kernel-modules-core-uname-r = %{_kver}
-Provides:       kernel-cachyos-znver4%{?_lto_args:-lto} > 7.0.10-cb1.0%{?_lto_args:.lto}%{?dist}
+Provides:       kernel-cachyos-znver4%{?_lto_args:-lto}-%{_basekver}.%{_stablekver} > 7.0.10-cb1.0%{?_lto_args:.lto}%{?dist}
 Provides:       installonlypkg(kernel)
-Obsoletes:      kernel-cachyos-znver4%{?_lto_args:-lto} <= 7.0.10-cb1.0.lto%{?_lto_args:.lto}%{?dist}
+Obsoletes:      kernel-cachyos-znver4%{?_lto_args:-lto}-%{_basekver}.%{_stablekver} <= 7.0.10-cb1.0.lto%{?_lto_args:.lto}%{?dist}
 
 BuildRequires:  bc
 BuildRequires:  bison
