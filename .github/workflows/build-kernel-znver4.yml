@@ -59,11 +59,11 @@ jobs:
       - name: Build on COPR
         if: github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4'
         env:
-          COPR_TOKEN: ${{ secrets.COPR_API_TOKEN }}
+          COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
         run: |
           pip install copr-cli
           export PATH="$HOME/.local/bin:$PATH"
-          echo "$COPR_TOKEN" > ~/.config/copr
+          printf '%s' "$COPR_TOKEN" > ~/.config/copr
           SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
           echo "Building $SRPM on COPR..."
           copr-cli build $COPR_USERNAME/$COPR_PROJECT $SRPM
