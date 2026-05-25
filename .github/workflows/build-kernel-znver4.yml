@@ -64,13 +64,25 @@ jobs:
           echo "stablekver=$STABLEKVER" >> $GITHUB_OUTPUT
           echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _tag=$TAG"
 
+      - name: Patch spec with actual version values
+        run: |
+          # Replace the default fallback values in the spec with the actual
+          # ones from the release tag, so they survive COPR rebuild.
+          SPEC="sources/kernel-cachyos-bore/kernel-cachyos.spec"
+          BASEKVER="${{ steps.release.outputs.basekver }}"
+          STABLEKVER="${{ steps.release.outputs.stablekver }}"
+          TAG="${{ steps.release.outputs.tag }}"
+
+          sed -i "s/^%{!?_basekver: %global _basekver .*$/%global _basekver ${BASEKVER}/" "$SPEC"
+          sed -i "s/^%{!?_stablekver: %global _stablekver .*$/%global _stablekver ${STABLEKVER}/" "$SPEC"
+          sed -i "s/^%{!?_tag: %global _tag .*$/%global _tag ${TAG}/" "$SPEC"
+
+          echo "Patched spec version lines:"
+          grep -E '^%global _basekver|^%global _stablekver|^%global _tag' "$SPEC"
+
       - name: Build SRPM
         run: |
-          rpmbuild -bs \
-            --define "_basekver ${{ steps.release.outputs.basekver }}" \
-            --define "_stablekver ${{ steps.release.outputs.stablekver }}" \
-            --define "_tag ${{ steps.release.outputs.tag }}" \
-            sources/kernel-cachyos-bore/kernel-cachyos.spec
+          rpmbuild -bs sources/kernel-cachyos-bore/kernel-cachyos.spec
 
       - name: Upload SRPM artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
