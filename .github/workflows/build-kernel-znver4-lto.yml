@@ -1,0 +1,119 @@
+name: Build kernel-cachyos-znver4-lto
+
+on:
+  workflow_dispatch:
+  # Manual activation only for now. Uncomment the schedule below once the
+  # LTO COPR project is ready and validated.
+  # schedule:
+  #   - cron: "30 20 * * *"
+
+env:
+  COPR_USERNAME: itotm
+  # NOTE: distinct COPR project for the LTO variant. Make sure it exists
+  # on COPR before enabling the "Build on COPR" step below.
+  COPR_PROJECT: cachyos-kernel-znver4-lto
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
+
+      - name: Setup rpmbuild directories
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+
+      - name: Get latest CachyOS/linux release
+        id: release
+        run: |
+          set -euo pipefail
+
+          # Accepted pattern: cachyos-X.Y.Z-N (excludes rc, non-standard hotfixes, etc.)
+          TAG_REGEX='^cachyos-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'
+
+          echo "Fetching releases from CachyOS/linux..."
+          RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/CachyOS/linux/releases?per_page=50" || echo "[]")
+          TAG=$(echo "$RELEASES_JSON" \
+            | jq -r --arg re "$TAG_REGEX" \
+                '[.[] | select(.draft==false) | select(.prerelease==false) | .tag_name | select(test($re))][0] // empty')
+
+          if [ -z "$TAG" ]; then
+            echo "No valid release found, falling back to /tags..."
+            TAGS_JSON=$(curl -fsSL "https://api.github.com/repos/CachyOS/linux/tags?per_page=50")
+            TAG=$(echo "$TAGS_JSON" \
+              | jq -r --arg re "$TAG_REGEX" \
+                  '[.[] | .name | select(test($re))][0] // empty')
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "::error::Could not find a valid CachyOS/linux tag matching $TAG_REGEX"
+            exit 1
+          fi
+
+          # Tag format: cachyos-7.0.10-2
+          # _basekver = 7.0        (major.minor)
+          # _stablekver = 10       (patch)
+          # _tag override = full tag (overrides the hardcoded -1 in the spec)
+          BASEKVER=$(echo "$TAG" | sed -E 's/^cachyos-([0-9]+\.[0-9]+)\.[0-9]+-[0-9]+$/\1/')
+          STABLEKVER=$(echo "$TAG" | sed -E 's/^cachyos-[0-9]+\.[0-9]+\.([0-9]+)-[0-9]+$/\1/')
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "basekver=$BASEKVER" >> $GITHUB_OUTPUT
+          echo "stablekver=$STABLEKVER" >> $GITHUB_OUTPUT
+          echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _tag=$TAG"
+
+      - name: Build SRPM (LTO)
+        run: |
+          rpmbuild -bs \
+            --define "_basekver ${{ steps.release.outputs.basekver }}" \
+            --define "_stablekver ${{ steps.release.outputs.stablekver }}" \
+            --define "_tag ${{ steps.release.outputs.tag }}" \
+            --define "_build_lto 1" \
+            sources/kernel-cachyos-bore/kernel-cachyos.spec
+
+      - name: Upload SRPM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kernel-srpm-lto
+          path: ~/rpmbuild/SRPMS/*.src.rpm
+
+      # NOTE: COPR submission for the LTO variant is intentionally disabled
+      # for now. Re-enable by removing the `false &&` guard below once the
+      # COPR project `${COPR_PROJECT}` exists and has been validated.
+      - name: Build on COPR
+        if: false && (github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4')
+        env:
+          COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
+        run: |
+          pip install copr-cli
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p ~/.config
+          printf '%s' "$COPR_TOKEN" > ~/.config/copr
+
+          SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
+          SRPM_NVR=$(rpm -qp --queryformat '%{NAME}-%{VERSION}-%{RELEASE}' "$SRPM")
+          SRPM_NAME=$(rpm -qp --queryformat '%{NAME}' "$SRPM")
+          SRPM_VER_REL=$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$SRPM")
+          echo "SRPM: $SRPM_NVR"
+
+          echo "Checking COPR for existing build of $SRPM_NAME $SRPM_VER_REL..."
+          # COPR returns source_package.version already in "version-release" format
+          EXISTING=$(curl -s \
+            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$SRPM_NAME&with_latest_succeeded_build=True" \
+            | jq -r '.builds.latest_succeeded.source_package.version // empty')
+
+          echo "Latest succeeded build on COPR: ${EXISTING:-none}"
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" = "$SRPM_VER_REL" ]; then
+            echo "Version-Release $SRPM_VER_REL already built successfully on COPR, skipping."
+            exit 0
+          fi
+
+          echo "Building $SRPM on COPR (async)..."
+          copr-cli build --nowait $COPR_USERNAME/$COPR_PROJECT "$SRPM"

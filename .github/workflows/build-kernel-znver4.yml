@@ -28,16 +28,38 @@ jobs:
       - name: Get latest CachyOS/linux release
         id: release
         run: |
-          TAG=$(curl -s https://api.github.com/repos/CachyOS/linux/releases/latest | jq -r '.tag_name')
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          set -euo pipefail
+
+          # Pattern accettato: cachyos-X.Y.Z-N (esclude rc, hotfix non standard, ecc.)
+          TAG_REGEX='^cachyos-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'
+
+          echo "Fetching releases from CachyOS/linux..."
+          RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/CachyOS/linux/releases?per_page=50" || echo "[]")
+          TAG=$(echo "$RELEASES_JSON" \
+            | jq -r --arg re "$TAG_REGEX" \
+                '[.[] | select(.draft==false) | select(.prerelease==false) | .tag_name | select(test($re))][0] // empty')
+
+          if [ -z "$TAG" ]; then
+            echo "No valid release found, falling back to /tags..."
+            TAGS_JSON=$(curl -fsSL "https://api.github.com/repos/CachyOS/linux/tags?per_page=50")
+            TAG=$(echo "$TAGS_JSON" \
+              | jq -r --arg re "$TAG_REGEX" \
+                  '[.[] | .name | select(test($re))][0] // empty')
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "::error::Could not find a valid CachyOS/linux tag matching $TAG_REGEX"
+            exit 1
+          fi
 
           # Tag format: cachyos-7.0.10-2
           # _basekver = 7.0        (major.minor)
           # _stablekver = 10       (patch)
-          # _tag override = full tag (sovrascrive l'hardcoded -1 nello spec)
-          BASEKVER=$(echo "$TAG" | sed 's/^cachyos-\([0-9]\+\.[0-9]\+\)\.[0-9]\+-[0-9]\+$/\1/')
-          STABLEKVER=$(echo "$TAG" | sed 's/^cachyos-[0-9]\+\.[0-9]\+\.\([0-9]\+\)-[0-9]\+$/\1/')
+          # _tag override = full tag (overrides the hardcoded -1 in the spec)
+          BASEKVER=$(echo "$TAG" | sed -E 's/^cachyos-([0-9]+\.[0-9]+)\.[0-9]+-[0-9]+$/\1/')
+          STABLEKVER=$(echo "$TAG" | sed -E 's/^cachyos-[0-9]+\.[0-9]+\.([0-9]+)-[0-9]+$/\1/')
 
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "basekver=$BASEKVER" >> $GITHUB_OUTPUT
           echo "stablekver=$STABLEKVER" >> $GITHUB_OUTPUT
           echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _tag=$TAG"
@@ -67,22 +89,21 @@ jobs:
           printf '%s' "$COPR_TOKEN" > ~/.config/copr
 
           SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
-          SRPM_VERSION=$(rpm -qp --queryformat '%{VERSION}' "$SRPM")
-          echo "SRPM version: $SRPM_VERSION"
-
-          echo "Checking COPR for existing build of version $SRPM_VERSION..."
-          # Extract package name from SRPM
+          SRPM_NVR=$(rpm -qp --queryformat '%{NAME}-%{VERSION}-%{RELEASE}' "$SRPM")
           SRPM_NAME=$(rpm -qp --queryformat '%{NAME}' "$SRPM")
-          echo "Package name: $SRPM_NAME"
+          SRPM_VER_REL=$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$SRPM")
+          echo "SRPM: $SRPM_NVR"
+
+          echo "Checking COPR for existing build of $SRPM_NAME $SRPM_VER_REL..."
+          # COPR returns source_package.version already in "version-release" format
           EXISTING=$(curl -s \
             "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$SRPM_NAME&with_latest_succeeded_build=True" \
             | jq -r '.builds.latest_succeeded.source_package.version // empty')
 
-          EXISTING_VERSION=$(echo "$EXISTING" | cut -d'-' -f1)
-          echo "Latest succeeded build on COPR: ${EXISTING_VERSION:-none}"
+          echo "Latest succeeded build on COPR: ${EXISTING:-none}"
 
-          if [ "$EXISTING_VERSION" = "$SRPM_VERSION" ]; then
-            echo "Version $SRPM_VERSION already built successfully on COPR, skipping."
+          if [ -n "$EXISTING" ] && [ "$EXISTING" = "$SRPM_VER_REL" ]; then
+            echo "Version-Release $SRPM_VER_REL already built successfully on COPR, skipping."
             exit 0
           fi
 

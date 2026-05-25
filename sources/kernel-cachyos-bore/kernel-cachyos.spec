@@ -10,8 +10,13 @@
 %undefine _include_frame_pointers
 
 # Linux Kernel Versions
+# NOTE: the default _basekver/_stablekver values are intentionally bogus.
+# The real build is driven by the GitHub Action, which overrides
+# _basekver, _stablekver and _tag via --define based on the latest valid
+# CachyOS/linux tag. If the values below show up in a build, it means
+# the action did not pass the overrides.
 %{!?_basekver: %global _basekver 7.0}
-%{!?_stablekver: %global _stablekver 9}
+%{!?_stablekver: %global _stablekver 0}
 %{!?_tag: %global _tag cachyos-%{_basekver}.%{_stablekver}-1}
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
@@ -75,7 +80,7 @@
 
 %define _module_args KERNEL_UNAME=%{_kver} IGNORE_PREEMPT_RT_PRESENCE=1 SYSSRC=%{_builddir}/linux-%{_tag} SYSOUT=%{_builddir}/linux-%{_tag}
 
-Name:           kernel-cachyos-znver4%{?_lto_args:-lto}-%{_basekver}.%{_stablekver}
+Name:           kernel-cachyos-znver4%{?_lto_args:-lto}
 Summary:        Linux BORE %{?_lto_args:+ LTO }Cachy Sauce Kernel by CachyOS with other patches and improvements for AMD Zen 4/5
 Version:        %{_basekver}.%{_stablekver}
 Release:        cachyos.znver4%{?dist}
@@ -85,9 +90,7 @@ URL:            https://cachyos.org
 Requires:       kernel-core-uname-r = %{_kver}
 Requires:       kernel-modules-uname-r = %{_kver}
 Requires:       kernel-modules-core-uname-r = %{_kver}
-Provides:       kernel-cachyos-znver4%{?_lto_args:-lto}-%{_basekver}.%{_stablekver} > 7.0.10-cb1.0%{?_lto_args:.lto}%{?dist}
 Provides:       installonlypkg(kernel)
-Obsoletes:      kernel-cachyos-znver4%{?_lto_args:-lto}-%{_basekver}.%{_stablekver} <= 7.0.10-cb1.0.lto%{?_lto_args:.lto}%{?dist}
 
 BuildRequires:  bc
 BuildRequires:  bison
@@ -176,6 +179,12 @@ Patch10:        %{_patch_src}/misc/nvidia/0001-Enable-atomic-kernel-modesetting-
     %else
         echo "Invalid x86_64 ISA Level. Using x86_64_v3"
         scripts/config --set-val X86_64_VERSION 3
+    %endif
+
+    %if %{_build_znver}
+        # Enable the znver4 (AMD Zen 4/5) CPU target in the CachyOS kernel,
+        # in addition to KCFLAGS -march=znver4 -mtune=znver4
+        scripts/config -d GENERIC_CPU -e MZEN4
     %endif
 
     # Enable Secure boot support
