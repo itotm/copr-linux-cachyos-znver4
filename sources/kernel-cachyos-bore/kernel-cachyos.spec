@@ -15,9 +15,9 @@
 # _basekver, _stablekver and _tag via --define based on the latest valid
 # CachyOS/linux tag. If the values below show up in a build, it means
 # the action did not pass the overrides.
-%{!?_basekver: %global _basekver 7.0}
-%{!?_stablekver: %global _stablekver 0}
-%{!?_tag: %global _tag cachyos-%{_basekver}.%{_stablekver}-1}
+%global _basekver 7.0
+%global _stablekver 10
+%global _tag cachyos-7.0.10-2
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
 
