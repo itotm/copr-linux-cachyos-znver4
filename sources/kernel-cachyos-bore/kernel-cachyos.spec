@@ -16,9 +16,9 @@
 # CachyOS/linux tag. If the values below show up in a build, it means
 # the action did not pass the overrides.
 %global _basekver 7.0
-%global _stablekver 10
-%global _cachyosrel 2
-%global _tag cachyos-7.0.10-2
+%global _stablekver 9
+%global _cachyosrel 1
+%global _tag cachyos-7.0.9-1
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
 
@@ -182,12 +182,6 @@ Patch10:        %{_patch_src}/misc/nvidia/0001-Enable-atomic-kernel-modesetting-
         scripts/config --set-val X86_64_VERSION 3
     %endif
 
-    %if %{_build_znver}
-        # Enable the znver4 (AMD Zen 4/5) CPU target in the CachyOS kernel,
-        # in addition to KCFLAGS -march=znver4 -mtune=znver4
-        scripts/config -d GENERIC_CPU -e MZEN4
-    %endif
-
     # Enable Secure boot support
     scripts/config -e CONFIG_IMA_SECURE_AND_OR_TRUSTED_BOOT
     scripts/config -e CONFIG_IMA
@@ -203,6 +197,12 @@ Patch10:        %{_patch_src}/misc/nvidia/0001-Enable-atomic-kernel-modesetting-
         %make_build LSMOD=%{SOURCE2} localmodconfig
     %else
         %make_build olddefconfig
+    %endif
+
+    %if %{_build_znver}
+        # Enable the znver4 (AMD Zen 4/5) CPU target in the CachyOS kernel,
+        # in addition to KCFLAGS -march=znver4 -mtune=znver4
+        scripts/config -d GENERIC_CPU -e MZEN4
     %endif
 
     diff -u %{SOURCE1} .config || :
