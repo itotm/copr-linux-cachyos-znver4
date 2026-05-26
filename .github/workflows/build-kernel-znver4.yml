@@ -20,15 +20,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
-
-      - name: Setup rpmbuild directories
-        run: |
-          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-
       - name: Get latest CachyOS/linux release
         id: release
         run: |
@@ -71,10 +62,38 @@ jobs:
           echo "cachyosrel=$CACHYOSREL" >> $GITHUB_OUTPUT
           echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _cachyosrel=$CACHYOSREL"
 
-      - name: Patch spec with actual version values
+      - name: Check if version already matches spec
+        id: check
         run: |
-          # Replace the conditional fallback macros with hardcoded values
-          # so COPR's SCM build picks up the correct version.
+          SPEC="sources/kernel-cachyos-bore/kernel-cachyos.spec"
+          CURRENT_TAG=$(grep -E '^%global _tag ' "$SPEC" | sed 's/^%global _tag //')
+          LATEST_TAG="${{ steps.release.outputs.tag }}"
+
+          echo "Current spec tag : $CURRENT_TAG"
+          echo "Latest upstream  : $LATEST_TAG"
+
+          if [ "$CURRENT_TAG" = "$LATEST_TAG" ]; then
+            echo "Versions match — no new kernel to build."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "New kernel version available: $LATEST_TAG"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
+
+      - name: Setup rpmbuild directories
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+
+      - name: Patch spec with actual version values
+        if: steps.check.outputs.skip != 'true'
+        run: |
           SPEC="sources/kernel-cachyos-bore/kernel-cachyos.spec"
           BASEKVER="${{ steps.release.outputs.basekver }}"
           STABLEKVER="${{ steps.release.outputs.stablekver }}"
@@ -90,6 +109,7 @@ jobs:
           grep -E '^%global _basekver|^%global _stablekver|^%global _cachyosrel|^%global _tag' "$SPEC"
 
       - name: Commit and push patched spec
+        if: steps.check.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -102,17 +122,19 @@ jobs:
           fi
 
       - name: Build SRPM
+        if: steps.check.outputs.skip != 'true'
         run: |
           rpmbuild -bs sources/kernel-cachyos-bore/kernel-cachyos.spec
 
       - name: Upload SRPM artifact
+        if: steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: kernel-srpm
           path: ~/rpmbuild/SRPMS/*.src.rpm
 
       - name: Build on COPR
-        if: github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4'
+        if: steps.check.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4')
         env:
           COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
         run: |
@@ -128,7 +150,6 @@ jobs:
           echo "SRPM: $SRPM_NVR"
 
           echo "Checking COPR for existing build of $SRPM_NAME $SRPM_VER_REL..."
-          # COPR returns source_package.version already in "version-release" format
           EXISTING=$(curl -s \
             "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$SRPM_NAME&with_latest_succeeded_build=True" \
             | jq -r '.builds.latest_succeeded.source_package.version // empty')

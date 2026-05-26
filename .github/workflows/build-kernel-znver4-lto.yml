@@ -69,7 +69,37 @@ jobs:
           echo "stablekver=$STABLEKVER" >> $GITHUB_OUTPUT
           echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _tag=$TAG"
 
+      - name: Check if version already matches spec
+        id: check
+        run: |
+          SPEC="sources/kernel-cachyos-bore/kernel-cachyos.spec"
+          CURRENT_TAG=$(grep -E '^%global _tag ' "$SPEC" | sed 's/^%global _tag //')
+          LATEST_TAG="${{ steps.release.outputs.tag }}"
+
+          echo "Current spec tag : $CURRENT_TAG"
+          echo "Latest upstream  : $LATEST_TAG"
+
+          if [ "$CURRENT_TAG" = "$LATEST_TAG" ]; then
+            echo "Versions match — no new kernel to build."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "New kernel version available: $LATEST_TAG"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
+
+      - name: Setup rpmbuild directories
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+
       - name: Build SRPM (LTO)
+        if: steps.check.outputs.skip != 'true'
         run: |
           rpmbuild -bs \
             --define "_basekver ${{ steps.release.outputs.basekver }}" \
@@ -79,6 +109,7 @@ jobs:
             sources/kernel-cachyos-bore/kernel-cachyos.spec
 
       - name: Upload SRPM artifact
+        if: steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: kernel-srpm-lto
@@ -88,7 +119,7 @@ jobs:
       # for now. Re-enable by removing the `false &&` guard below once the
       # COPR project `${COPR_PROJECT}` exists and has been validated.
       - name: Build on COPR
-        if: false && (github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4')
+        if: false && steps.check.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4')
         env:
           COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
         run: |
