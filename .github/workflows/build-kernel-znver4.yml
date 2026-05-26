@@ -15,6 +15,7 @@ permissions:
 jobs:
   check-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -58,14 +59,17 @@ jobs:
           # Tag format: cachyos-7.0.10-2
           # _basekver = 7.0        (major.minor)
           # _stablekver = 10       (patch)
-          # _tag override = full tag (overrides the hardcoded -1 in the spec)
+          # _cachyosrel = 2        (CachyOS build number)
+          # _tag override = full tag
           BASEKVER=$(echo "$TAG" | sed -E 's/^cachyos-([0-9]+\.[0-9]+)\.[0-9]+-[0-9]+$/\1/')
           STABLEKVER=$(echo "$TAG" | sed -E 's/^cachyos-[0-9]+\.[0-9]+\.([0-9]+)-[0-9]+$/\1/')
+          CACHYOSREL=$(echo "$TAG" | sed -E 's/^cachyos-[0-9]+\.[0-9]+\.[0-9]+-([0-9]+)$/\1/')
 
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "basekver=$BASEKVER" >> $GITHUB_OUTPUT
           echo "stablekver=$STABLEKVER" >> $GITHUB_OUTPUT
-          echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _tag=$TAG"
+          echo "cachyosrel=$CACHYOSREL" >> $GITHUB_OUTPUT
+          echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _cachyosrel=$CACHYOSREL"
 
       - name: Patch spec with actual version values
         run: |
@@ -74,14 +78,16 @@ jobs:
           SPEC="sources/kernel-cachyos-bore/kernel-cachyos.spec"
           BASEKVER="${{ steps.release.outputs.basekver }}"
           STABLEKVER="${{ steps.release.outputs.stablekver }}"
+          CACHYOSREL="${{ steps.release.outputs.cachyosrel }}"
           TAG="${{ steps.release.outputs.tag }}"
 
-          sed -i "s/^%{!?_basekver: %global _basekver .*$/%global _basekver ${BASEKVER}/" "$SPEC"
-          sed -i "s/^%{!?_stablekver: %global _stablekver .*$/%global _stablekver ${STABLEKVER}/" "$SPEC"
-          sed -i "s/^%{!?_tag: %global _tag .*$/%global _tag ${TAG}/" "$SPEC"
+          sed -i "s/^%global _basekver .*/%global _basekver ${BASEKVER}/" "$SPEC"
+          sed -i "s/^%global _stablekver .*/%global _stablekver ${STABLEKVER}/" "$SPEC"
+          sed -i "s/^%global _cachyosrel .*/%global _cachyosrel ${CACHYOSREL}/" "$SPEC"
+          sed -i "s/^%global _tag .*/%global _tag ${TAG}/" "$SPEC"
 
           echo "Patched spec version lines:"
-          grep -E '^%global _basekver|^%global _stablekver|^%global _tag' "$SPEC"
+          grep -E '^%global _basekver|^%global _stablekver|^%global _cachyosrel|^%global _tag' "$SPEC"
 
       - name: Commit and push patched spec
         run: |
