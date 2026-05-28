@@ -113,6 +113,11 @@ BuildRequires:  python3-pyyaml
 BuildRequires:  python-srpm-macros
 BuildRequires:  clang
 
+%if %{_build_lto}
+BuildRequires:  lld
+BuildRequires:  llvm
+%endif
+
 %if %{_build_nv}
 BuildRequires:  gcc-c++
 %endif
