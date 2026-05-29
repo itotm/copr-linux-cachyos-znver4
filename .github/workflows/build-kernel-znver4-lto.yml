@@ -7,7 +7,7 @@ on:
 
 env:
   COPR_USERNAME: itotm
-  COPR_PROJECT: cachyos-kernel-znver4-lto
+  COPR_PROJECT: cachyos-kernel-znver4
 
 permissions:
   contents: write
