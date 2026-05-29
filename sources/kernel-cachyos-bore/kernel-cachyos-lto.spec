@@ -18,7 +18,7 @@
 %global _basekver 7.0
 %global _stablekver 0
 %global _cachyosrel 1
-%global _tag cachyos-7.0.10-2
+%global _tag cachyos-7.0.0-1
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
 
