@@ -121,17 +121,12 @@ jobs:
             git push
           fi
 
-      - name: Build base SRPM
+      - name: Build SRPM
         if: steps.check.outputs.skip != 'true'
         run: |
           rpmbuild -bs sources/kernel-cachyos-bore/kernel-cachyos.spec
 
-      - name: Build LTO SRPM
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          rpmbuild -bs --define "_build_lto 1" sources/kernel-cachyos-bore/kernel-cachyos.spec
-
-      - name: Upload SRPM artifacts
+      - name: Upload SRPM artifact
         if: steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -148,49 +143,25 @@ jobs:
           mkdir -p ~/.config
           printf '%s' "$COPR_TOKEN" > ~/.config/copr
 
-          # ---- Base (non-LTO) build ----
-          BASE_SRPM=$(ls ~/rpmbuild/SRPMS/kernel-cachyos-znver4-*.src.rpm 2>/dev/null | head -1 || true)
-          if [ -z "$BASE_SRPM" ]; then
-            echo "No base SRPM found, skipping."
-          else
-            BASE_NAME=$(rpm -qp --queryformat '%{NAME}' "$BASE_SRPM")
-            BASE_VER_REL=$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$BASE_SRPM")
-            echo "Base SRPM: $BASE_NAME-$BASE_VER_REL"
-
-            echo "Checking COPR for existing build of $BASE_NAME $BASE_VER_REL..."
-            EXISTING=$(curl -s \
-              "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$BASE_NAME&with_latest_succeeded_build=True" \
-              | jq -r '.builds.latest_succeeded.source_package.version // empty')
-            echo "Latest succeeded build on $COPR_PROJECT: ${EXISTING:-none}"
-
-            if [ -n "$EXISTING" ] && [ "$EXISTING" = "$BASE_VER_REL" ]; then
-              echo "Version-Release $BASE_VER_REL already built successfully on $COPR_PROJECT, skipping."
-            else
-              echo "Building $BASE_SRPM on $COPR_PROJECT (async)..."
-              copr-cli build --nowait $COPR_USERNAME/$COPR_PROJECT "$BASE_SRPM"
-            fi
+          SRPM=$(ls ~/rpmbuild/SRPMS/kernel-cachyos-znver4-*.src.rpm 2>/dev/null | head -1 || true)
+          if [ -z "$SRPM" ]; then
+            echo "No SRPM found, skipping."
+            exit 1
           fi
 
-          # ---- LTO variant ----
-          LTO_SRPM=$(ls ~/rpmbuild/SRPMS/kernel-cachyos-znver4-lto-*.src.rpm 2>/dev/null | head -1 || true)
-          if [ -z "$LTO_SRPM" ]; then
-            echo "No LTO SRPM found, skipping."
+          PKG_NAME=$(rpm -qp --queryformat '%{NAME}' "$SRPM")
+          PKG_VER_REL=$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$SRPM")
+          echo "SRPM: $PKG_NAME-$PKG_VER_REL"
+
+          echo "Checking COPR for existing build of $PKG_NAME $PKG_VER_REL..."
+          EXISTING=$(curl -s \
+            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$PKG_NAME&with_latest_succeeded_build=True" \
+            | jq -r '.builds.latest_succeeded.source_package.version // empty')
+          echo "Latest succeeded build on $COPR_PROJECT: ${EXISTING:-none}"
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" = "$PKG_VER_REL" ]; then
+            echo "Version-Release $PKG_VER_REL already built successfully on $COPR_PROJECT, skipping."
           else
-            LTO_NAME=$(rpm -qp --queryformat '%{NAME}' "$LTO_SRPM")
-            LTO_VER_REL=$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$LTO_SRPM")
-            LTO_PROJECT="${COPR_PROJECT}-lto"
-            echo "LTO SRPM: $LTO_NAME-$LTO_VER_REL"
-
-            echo "Checking COPR for existing build of $LTO_NAME $LTO_VER_REL on $LTO_PROJECT..."
-            LTO_EXISTING=$(curl -s \
-              "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$LTO_PROJECT&packagename=$LTO_NAME&with_latest_succeeded_build=True" \
-              | jq -r '.builds.latest_succeeded.source_package.version // empty')
-            echo "Latest succeeded build on $LTO_PROJECT: ${LTO_EXISTING:-none}"
-
-            if [ -n "$LTO_EXISTING" ] && [ "$LTO_EXISTING" = "$LTO_VER_REL" ]; then
-              echo "Version-Release $LTO_VER_REL already built successfully on $LTO_PROJECT, skipping."
-            else
-              echo "Building $LTO_SRPM on $LTO_PROJECT (async)..."
-              copr-cli build --nowait "$COPR_USERNAME/$LTO_PROJECT" "$LTO_SRPM"
-            fi
+            echo "Building $SRPM on $COPR_PROJECT (async)..."
+            copr-cli build --nowait "$COPR_USERNAME/$COPR_PROJECT" "$SRPM"
           fi

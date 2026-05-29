@@ -4,7 +4,7 @@
 %define _default_patch_fuzz 2
 %define _disable_source_fetch 0
 %define debug_package %{nil}
-%define make_build make %{?_znver_args} %{?_smp_mflags}
+%define make_build make %{?_lto_args} %{?_znver_args} %{?_smp_mflags}
 %undefine __brp_mangle_shebangs
 %undefine _auto_set_build_flags
 %undefine _include_frame_pointers
@@ -23,6 +23,9 @@
 %define _kver %{_rpmver}.%{_arch}
 
 %define _tarkver %{version}
+
+# Builds the kernel with clang and enables ThinLTO
+%define _lto_args CC=clang CXX=clang++ LD=ld.lld LLVM=1 LLVM_IAS=1
 
 # Builds for znver4 (AMD Zen 4/5) microarchitecture
 # Adds -march=znver4 -mtune=znver4 via KCFLAGS
@@ -52,8 +55,8 @@
     %define _znver_args KCFLAGS="-march=znver4 -mtune=znver4"
 %endif
 
-Name:           kernel-cachyos-znver4
-Summary:        Linux BORE Cachy Sauce Kernel by CachyOS with other patches and improvements for AMD Zen 4/5
+Name:           kernel-cachyos-znver4-lto
+Summary:        Linux BORE LTO Cachy Sauce Kernel by CachyOS with other patches and improvements for AMD Zen 4/5
 Version:        %{_basekver}.%{_stablekver}
 Release:        %{_cachyosrel}
 License:        GPL-2.0-only
@@ -66,12 +69,15 @@ Provides:       installonlypkg(kernel)
 
 BuildRequires:  bc
 BuildRequires:  bison
+BuildRequires:  clang
 BuildRequires:  dwarves
 BuildRequires:  elfutils-devel
 BuildRequires:  flex
 BuildRequires:  gcc
 BuildRequires:  gettext-devel
 BuildRequires:  kmod
+BuildRequires:  lld
+BuildRequires:  llvm
 BuildRequires:  make
 BuildRequires:  openssl
 BuildRequires:  openssl-devel
@@ -88,6 +94,7 @@ Source0:        https://github.com/CachyOS/linux/archive/refs/tags/%{_tag}.tar.g
 Source1:        https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/config
 
 Patch0:         %{_patch_src}/sched/0001-bore-cachy.patch
+Patch1:         %{_patch_src}/misc/dkms-clang.patch
 
 %description
     The meta package for %{name}.
@@ -131,6 +138,9 @@ Patch0:         %{_patch_src}/sched/0001-bore-cachy.patch
     scripts/config -e CONFIG_IMA_APPRAISE_BOOTPARAM
     scripts/config -e CONFIG_IMA_APPRAISE
     scripts/config -e CONFIG_IMA_ARCH_POLICY
+
+    # Enable ThinLTO
+    scripts/config -e LTO_CLANG_THIN
 
     %make_build olddefconfig
 
@@ -257,7 +267,7 @@ Patch0:         %{_patch_src}/sched/0001-bore-cachy.patch
     dd if=/dev/zero of=%{buildroot}/boot/initramfs-%{_kver}.img bs=1M count=90
 
 %package core
-Summary:        Linux BORE Cachy Sauce Kernel by CachyOS with other patches and improvements
+Summary:        Linux BORE LTO Cachy Sauce Kernel by CachyOS with other patches and improvements
 AutoReq:        no
 Conflicts:      xfsprogs < 4.3.0-1
 Conflicts:      xorg-x11-drv-vmmouse < 13.0.99
@@ -365,7 +375,9 @@ Requires:       elfutils-libelf-devel
 Requires:       bison
 Requires:       flex
 Requires:       make
-Requires:       gcc
+Requires:       clang
+Requires:       lld
+Requires:       llvm
 
 %description devel
     This package provides kernel headers and makefiles sufficient to build modules against %{name}.

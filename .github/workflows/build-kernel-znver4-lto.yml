@@ -2,16 +2,15 @@ name: Build kernel-cachyos-znver4-lto
 
 on:
   workflow_dispatch:
-  # Manual activation only for now. Uncomment the schedule below once the
-  # LTO COPR project is ready and validated.
-  # schedule:
-  #   - cron: "30 20 * * *"
+  schedule:
+    - cron: "0 22 * * *"
 
 env:
   COPR_USERNAME: itotm
-  # NOTE: distinct COPR project for the LTO variant. Make sure it exists
-  # on COPR before enabling the "Build on COPR" step below.
   COPR_PROJECT: cachyos-kernel-znver4-lto
+
+permissions:
+  contents: write
 
 jobs:
   check-and-build:
@@ -21,21 +20,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
-
-      - name: Setup rpmbuild directories
-        run: |
-          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-
       - name: Get latest CachyOS/linux release
         id: release
         run: |
           set -euo pipefail
 
-          # Accepted pattern: cachyos-X.Y.Z-N (excludes rc, non-standard hotfixes, etc.)
+          # Pattern: cachyos-X.Y.Z-N (no rc, hotfix, etc.)
           TAG_REGEX='^cachyos-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'
 
           echo "Fetching releases from CachyOS/linux..."
@@ -60,27 +50,30 @@ jobs:
           # Tag format: cachyos-7.0.10-2
           # _basekver = 7.0        (major.minor)
           # _stablekver = 10       (patch)
-          # _tag override = full tag (overrides the hardcoded -1 in the spec)
+          # _cachyosrel = 2        (CachyOS build number)
+          # _tag override = full tag
           BASEKVER=$(echo "$TAG" | sed -E 's/^cachyos-([0-9]+\.[0-9]+)\.[0-9]+-[0-9]+$/\1/')
           STABLEKVER=$(echo "$TAG" | sed -E 's/^cachyos-[0-9]+\.[0-9]+\.([0-9]+)-[0-9]+$/\1/')
+          CACHYOSREL=$(echo "$TAG" | sed -E 's/^cachyos-[0-9]+\.[0-9]+\.[0-9]+-([0-9]+)$/\1/')
 
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "basekver=$BASEKVER" >> $GITHUB_OUTPUT
           echo "stablekver=$STABLEKVER" >> $GITHUB_OUTPUT
-          echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _tag=$TAG"
+          echo "cachyosrel=$CACHYOSREL" >> $GITHUB_OUTPUT
+          echo "Latest release tag: $TAG → _basekver=$BASEKVER _stablekver=$STABLEKVER _cachyosrel=$CACHYOSREL"
 
-      - name: Check if version already matches spec
+      - name: Check if version already matches LTO spec
         id: check
         run: |
-          SPEC="sources/kernel-cachyos-bore/kernel-cachyos.spec"
+          SPEC="sources/kernel-cachyos-bore/kernel-cachyos-lto.spec"
           CURRENT_TAG=$(grep -E '^%global _tag ' "$SPEC" | sed 's/^%global _tag //')
           LATEST_TAG="${{ steps.release.outputs.tag }}"
 
-          echo "Current spec tag : $CURRENT_TAG"
-          echo "Latest upstream  : $LATEST_TAG"
+          echo "Current LTO spec tag : $CURRENT_TAG"
+          echo "Latest upstream      : $LATEST_TAG"
 
           if [ "$CURRENT_TAG" = "$LATEST_TAG" ]; then
-            echo "Versions match — no new kernel to build."
+            echo "Versions match — no new LTO kernel to build."
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "New kernel version available: $LATEST_TAG"
@@ -91,35 +84,57 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc
+          sudo apt-get install -y jq curl rpm bc bison dwarves elfutils libdw-dev flex gcc clang lld llvm
 
       - name: Setup rpmbuild directories
         if: steps.check.outputs.skip != 'true'
         run: |
           mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 
-      - name: Build SRPM (LTO)
+      - name: Patch LTO spec with actual version values
         if: steps.check.outputs.skip != 'true'
         run: |
-          rpmbuild -bs \
-            --define "_basekver ${{ steps.release.outputs.basekver }}" \
-            --define "_stablekver ${{ steps.release.outputs.stablekver }}" \
-            --define "_tag ${{ steps.release.outputs.tag }}" \
-            --define "_build_lto 1" \
-            sources/kernel-cachyos-bore/kernel-cachyos.spec
+          SPEC="sources/kernel-cachyos-bore/kernel-cachyos-lto.spec"
+          BASEKVER="${{ steps.release.outputs.basekver }}"
+          STABLEKVER="${{ steps.release.outputs.stablekver }}"
+          CACHYOSREL="${{ steps.release.outputs.cachyosrel }}"
+          TAG="${{ steps.release.outputs.tag }}"
 
-      - name: Upload SRPM artifact
+          sed -i "s/^%global _basekver .*/%global _basekver ${BASEKVER}/" "$SPEC"
+          sed -i "s/^%global _stablekver .*/%global _stablekver ${STABLEKVER}/" "$SPEC"
+          sed -i "s/^%global _cachyosrel .*/%global _cachyosrel ${CACHYOSREL}/" "$SPEC"
+          sed -i "s/^%global _tag .*/%global _tag ${TAG}/" "$SPEC"
+
+          echo "Patched LTO spec version lines:"
+          grep -E '^%global _basekver|^%global _stablekver|^%global _cachyosrel|^%global _tag' "$SPEC"
+
+      - name: Commit and push patched LTO spec
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sources/kernel-cachyos-bore/kernel-cachyos-lto.spec
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: bump LTO kernel to ${{ steps.release.outputs.tag }}"
+            git push
+          fi
+
+      - name: Build LTO SRPM
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          rpmbuild -bs sources/kernel-cachyos-bore/kernel-cachyos-lto.spec
+
+      - name: Upload LTO SRPM artifact
         if: steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: kernel-srpm-lto
+          name: kernel-lto-srpms
           path: ~/rpmbuild/SRPMS/*.src.rpm
 
-      # NOTE: COPR submission for the LTO variant is intentionally disabled
-      # for now. Re-enable by removing the `false &&` guard below once the
-      # COPR project `${COPR_PROJECT}` exists and has been validated.
-      - name: Build on COPR
-        if: false && steps.check.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4')
+      - name: Build on COPR (LTO project)
+        if: steps.check.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4')
         env:
           COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
         run: |
@@ -128,24 +143,25 @@ jobs:
           mkdir -p ~/.config
           printf '%s' "$COPR_TOKEN" > ~/.config/copr
 
-          SRPM=$(ls ~/rpmbuild/SRPMS/*.src.rpm)
-          SRPM_NVR=$(rpm -qp --queryformat '%{NAME}-%{VERSION}-%{RELEASE}' "$SRPM")
-          SRPM_NAME=$(rpm -qp --queryformat '%{NAME}' "$SRPM")
-          SRPM_VER_REL=$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$SRPM")
-          echo "SRPM: $SRPM_NVR"
-
-          echo "Checking COPR for existing build of $SRPM_NAME $SRPM_VER_REL..."
-          # COPR returns source_package.version already in "version-release" format
-          EXISTING=$(curl -s \
-            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$SRPM_NAME&with_latest_succeeded_build=True" \
-            | jq -r '.builds.latest_succeeded.source_package.version // empty')
-
-          echo "Latest succeeded build on COPR: ${EXISTING:-none}"
-
-          if [ -n "$EXISTING" ] && [ "$EXISTING" = "$SRPM_VER_REL" ]; then
-            echo "Version-Release $SRPM_VER_REL already built successfully on COPR, skipping."
-            exit 0
+          SRPM=$(ls ~/rpmbuild/SRPMS/kernel-cachyos-znver4-lto-*.src.rpm 2>/dev/null | head -1 || true)
+          if [ -z "$SRPM" ]; then
+            echo "No LTO SRPM found, skipping."
+            exit 1
           fi
 
-          echo "Building $SRPM on COPR (async)..."
-          copr-cli build --nowait $COPR_USERNAME/$COPR_PROJECT "$SRPM"
+          PKG_NAME=$(rpm -qp --queryformat '%{NAME}' "$SRPM")
+          PKG_VER_REL=$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$SRPM")
+          echo "LTO SRPM: $PKG_NAME-$PKG_VER_REL"
+
+          echo "Checking COPR for existing build of $PKG_NAME $PKG_VER_REL..."
+          EXISTING=$(curl -s \
+            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$PKG_NAME&with_latest_succeeded_build=True" \
+            | jq -r '.builds.latest_succeeded.source_package.version // empty')
+          echo "Latest succeeded build on $COPR_PROJECT: ${EXISTING:-none}"
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" = "$PKG_VER_REL" ]; then
+            echo "Version-Release $PKG_VER_REL already built successfully on $COPR_PROJECT, skipping."
+          else
+            echo "Building $SRPM on $COPR_PROJECT (async)..."
+            copr-cli build --nowait "$COPR_USERNAME/$COPR_PROJECT" "$SRPM"
+          fi
