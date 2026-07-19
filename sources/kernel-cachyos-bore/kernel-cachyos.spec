@@ -16,9 +16,9 @@
 # CachyOS/linux tag. If the values below show up in a build, it means
 # the action did not pass the overrides.
 %global _basekver 7.1
-%global _stablekver 3
+%global _stablekver 4
 %global _cachyosrel 1
-%global _tag cachyos-7.1.3-1
+%global _tag cachyos-7.1.4-1
 %define _rpmver %{version}-%{release}
 %define _kver %{_rpmver}.%{_arch}
 
