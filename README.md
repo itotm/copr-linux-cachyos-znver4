@@ -48,6 +48,8 @@ sudo dnf install kernel-cachyos-znver4
 
 Spec file: `sources/kernel-cachyos-bore/kernel-cachyos.spec`
 
+This project was developed with the help of an LLM.
+
 ## Credits
 
 - [CachyOS](https://cachyos.org)
