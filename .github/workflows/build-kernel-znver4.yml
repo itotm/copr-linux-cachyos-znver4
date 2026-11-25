@@ -22,24 +22,30 @@ jobs:
 
       - name: Get latest CachyOS/linux release
         id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           # Pattern: cachyos-X.Y.Z-N (no rc, hotfix, etc.)
           TAG_REGEX='^cachyos-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'
 
+          # Pick the highest version, not the most recent release: LTS releases
+          # (e.g. 6.18.x) are published alongside the stable ones.
+          HIGHEST='map(select(test($re))) | sort_by([scan("[0-9]+") | tonumber]) | last // empty'
+
           echo "Fetching releases from CachyOS/linux..."
-          RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/CachyOS/linux/releases?per_page=50" || echo "[]")
+          RELEASES_JSON=$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/CachyOS/linux/releases?per_page=50" || echo "[]")
           TAG=$(echo "$RELEASES_JSON" \
             | jq -r --arg re "$TAG_REGEX" \
-                '[.[] | select(.draft==false) | select(.prerelease==false) | .tag_name | select(test($re))][0] // empty')
+                "[.[] | select(.draft==false) | select(.prerelease==false) | .tag_name] | $HIGHEST")
 
           if [ -z "$TAG" ]; then
             echo "No valid release found, falling back to /tags..."
-            TAGS_JSON=$(curl -fsSL "https://api.github.com/repos/CachyOS/linux/tags?per_page=50")
+            TAGS_JSON=$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/CachyOS/linux/tags?per_page=50")
             TAG=$(echo "$TAGS_JSON" \
               | jq -r --arg re "$TAG_REGEX" \
-                  '[.[] | .name | select(test($re))][0] // empty')
+                  "[.[] | .name] | $HIGHEST")
           fi
 
           if [ -z "$TAG" ]; then
@@ -108,19 +114,6 @@ jobs:
           echo "Patched spec version lines:"
           grep -E '^%global _basekver|^%global _stablekver|^%global _cachyosrel|^%global _tag' "$SPEC"
 
-      - name: Commit and push patched spec
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add sources/kernel-cachyos-bore/kernel-cachyos.spec
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "chore: bump kernel to ${{ steps.release.outputs.tag }}"
-            git push
-          fi
-
       - name: Build SRPM
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -134,6 +127,7 @@ jobs:
           path: ~/rpmbuild/SRPMS/*.src.rpm
 
       - name: Build on COPR
+        id: copr
         if: steps.check.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || github.repository == 'itotm/copr-linux-cachyos-znver4')
         env:
           COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
@@ -154,14 +148,37 @@ jobs:
           echo "SRPM: $PKG_NAME-$PKG_VER_REL"
 
           echo "Checking COPR for existing build of $PKG_NAME $PKG_VER_REL..."
-          EXISTING=$(curl -s \
-            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$PKG_NAME&with_latest_succeeded_build=True" \
-            | jq -r '.builds.latest_succeeded.source_package.version // empty')
+          PKG_JSON=$(curl -s \
+            "https://copr.fedorainfracloud.org/api_3/package/?ownername=$COPR_USERNAME&projectname=$COPR_PROJECT&packagename=$PKG_NAME&with_latest_build=True&with_latest_succeeded_build=True")
+          EXISTING=$(echo "$PKG_JSON" | jq -r '.builds.latest_succeeded.source_package.version // empty')
           echo "Latest succeeded build on $COPR_PROJECT: ${EXISTING:-none}"
+          # Version of the latest build if it is still in progress (e.g. submitted by a
+          # previous run that then failed to push the tag)
+          RUNNING=$(echo "$PKG_JSON" | jq -r '.builds.latest
+            | select(.state | IN("importing", "pending", "starting", "running", "waiting"))
+            | .source_package.version // empty')
+          echo "Build in progress on $COPR_PROJECT: ${RUNNING:-none}"
 
           if [ -n "$EXISTING" ] && [ "$EXISTING" = "$PKG_VER_REL" ]; then
             echo "Version-Release $PKG_VER_REL already built successfully on $COPR_PROJECT, skipping."
+          elif [ -n "$RUNNING" ] && [ "$RUNNING" = "$PKG_VER_REL" ]; then
+            echo "Version-Release $PKG_VER_REL already building on $COPR_PROJECT, skipping."
           else
             echo "Building $SRPM on $COPR_PROJECT (async)..."
             copr-cli build --nowait "$COPR_USERNAME/$COPR_PROJECT" "$SRPM"
+          fi
+
+      - name: Commit and push patched spec
+        # Only once COPR has accepted the build: if anything above fails, the tag in
+        # the spec stays at the previous version and the next run tries again.
+        if: steps.copr.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sources/kernel-cachyos-bore/kernel-cachyos.spec
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: bump kernel to ${{ steps.release.outputs.tag }}"
+            git push
           fi
